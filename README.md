@@ -1,10 +1,9 @@
 ﻿# chatgpt-html
+A HTML single file page that use ApiKey to talk with ChatGPT
 
-#### 介绍
-ChatGPT通过API KEY调用API接口进行对话的HTML页面
-
-#### 说明
-本地使用需要科学上网。
-
-#### 部署到Vercel
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fyohtozze%2Fchatgpt-html)
+## How to use
+**Deploy to Vercel:** [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fyohtozze%2Fchatgpt-html)
+**Locally:**
+Download the html file.
+Modify the code `fetch('/openai/v1/chat/completions',{` to `fetch('https://api.openai.com/v1/chat/completions',{`.
+open the html file.
