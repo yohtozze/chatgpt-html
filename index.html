@@ -9,9 +9,14 @@
   <link rel="shortcut icon" href="icon.png" />
 
   <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.2.47/vue.global.prod.js"></script>
+
   <link rel="stylesheet" type="text/css" href="https://cdn.bootcdn.net/ajax/libs/element-plus/2.2.30/index.css">
   <script src="https://cdn.bootcdn.net/ajax/libs/element-plus/2.2.30/index.full.min.js"></script>
+  
   <script src="https://cdn.bootcdn.net/ajax/libs/marked/4.2.12/marked.min.js"></script>
+
+  <link href="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.7.0/styles/base16/default-dark.min.css" rel="stylesheet">
+  <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
 
   <style type="text/css">
     html,body,#app{
@@ -69,7 +74,7 @@
       color:#fff;
     }
     .chat-msg .content{
-      max-width: 80%;
+      max-width: 70%;
       margin:0 10px;
       padding:10px;
       border-radius: 8px;
@@ -93,21 +98,24 @@
       ApiKey<el-input v-model="apikey" type="password" style="width: 50%;margin:0 10px;" placeholder="请输入ChatGPT的API密钥"></el-input>
       <el-button type="primary" @click="saveKey">保存到浏览器</el-button>
       <el-button type="primary" @click="delKey">删除保存的密钥</el-button>
+      <el-button type="primary" @click="remain">查看余额</el-button>
     </div>
-  
+
     <div id="chat-body" class="body">
+      <!-- 对话内容 -->
       <div v-for="v in msg" class="chat-msg" :class="v.role">
         <el-avatar v-if="v.role=='assistant'" :size="30" src="icon.png"></el-avatar>
-        <div v-if="v.role!='system'" class="content" v-html="marked.parse(v.content)"></div>
+        <div v-if="v.role!='system'" class="content" v-html="v.role=='user'?v.content:marked.parse(v.content)"></div>
       </div>
       <!-- AI输入中 -->
       <div v-show="!canSend" class="chat-msg assistant">
         <el-avatar :size="30" src="icon.png"></el-avatar>
-        <div class="content animate__animated animate__fadeInUp" v-html="marked.parse(tmpTxt)"></div>
+        <div class="content animate__animated animate__fadeInUp" v-html="marked.parse(tmpTxt+'\n')"></div>
       </div>
     </div>
+
     <div class="footer">
-      <el-input v-model="input" :disabled="!canSend" autosize type="textarea" placeholder="请输入内容" @keypress="pressEnter"></el-input>
+      <el-input v-model="input" autosize type="textarea" placeholder="请输入内容" @keypress="pressEnter"></el-input>
       <el-button type="primary" :disabled="!canSend" style="margin-left:20px;" @click="send">发送</el-button>
     </div>
   </div>
@@ -117,6 +125,7 @@
   var app=Vue.createApp({
     data(){
       return{
+        baseUrl:'/openai',
         saveName:'chatgpt-apikey',
         apikey:'',
         msg:[{role:'system',content:'以markdown格式回答'}],//所有对话
@@ -130,6 +139,27 @@
       this.apikey=localStorage.getItem(this.saveName)
     },
     methods:{
+      //查看余额
+      remain(){
+        this.$loading()
+        fetch(this.baseUrl+'/dashboard/billing/credit_grants',{
+          method:'GET',
+          headers:{
+            'Content-Type':'application/json',
+            'Authorization': 'Bearer '+this.apikey
+          },
+        }).then(response => response.json()).then(o => {
+          this.$notify({
+            title: '余额',
+            message: '总计：'+o.total_granted+'，可用：'+o.total_available+'，已用：'+o.total_used,
+            duration: 0,
+          })
+          this.$loading().close()
+        }).catch(e=>{
+          this.$message.error(e)
+          this.$loading().close()
+        })
+      },
       //回车
       pressEnter(){
         if(event.keyCode == 13){
@@ -162,68 +192,60 @@
         //获取元素用于滚动
         let chatBody=document.getElementById('chat-body')
 
-        //处理流数据
-        let decoder = new TextDecoder()
-        let parseStream=(value)=>{
-          let tmp=decoder.decode(value)
-          let data=tmp.split('\n')
-          for (let v of data) {
-            if(!v)continue
-            if(v=='data: [DONE]')break
-            let json=JSON.parse(v.substr(6))
-            let text=json.choices[0].delta.content??''
-            if(text=='\n\n'&&this.tmpTxt=='')continue//去掉开头的换行
-            if(text)this.tmpTxt+=text
-          }
-
-          //滚动到底部
-          chatBody.scrollTop = chatBody.scrollHeight
-        }
-
-        //结束处理
-        let fin=()=>{
-          this.msg.push({role:'assistant',content:this.tmpTxt})
-          this.canSend=true
-          this.tmpTxt=''
-
-          //消息长度控制在30
-          let spli=this.msg.length-30
-          if(spli>0)this.msg.splice(0,spli)
-        }
-
-        fetch('/openai/v1/chat/completions',{
+        fetch(this.baseUrl+'/v1/chat/completions',{
           method:'POST',
           headers:{
             'Content-Type':'application/json',
             'Authorization': 'Bearer '+this.apikey
           },
           body:JSON.stringify({
-            model: 'gpt-3.5-turbo',//gpt-4
+            model: 'gpt-3.5-turbo',
             messages:this.msg,
             temperature: 0.6,//创意度
             stream: true,
           }),
         }).then(o=>{
           let reader = o.body.getReader()
-          new ReadableStream({
-            start(controller) {
-              let push=()=>{
-                reader.read().then(({ done, value }) => {
-                  if (done) {
-                    fin()//结束处理
-                    controller.close()
-                    return
-                  }
 
-                  parseStream(value)//处理数据
+          let readStream=(reader)=>{
+            reader.read().then(({ done, value }) => {
+              //结束处理
+              if (done) {
+                this.msg.push({role:'assistant',content:this.tmpTxt})
+                this.canSend=true
+                this.tmpTxt=''
 
-                  controller.enqueue(value)
-                  push()
-                })
+                //消息长度控制在30
+                let spli=this.msg.length-30
+                if(spli>0)this.msg.splice(0,spli)
+
+                //滚动到底部
+                chatBody.scrollTop = chatBody.scrollHeight
+
+                //代码高亮
+                this.$nextTick(() => {hljs.highlightAll()})
+
+                return
               }
-              push()
-            },
-          })
+
+              let decodeds = new TextDecoder().decode(value)
+              let decodedArray=decodeds.split('data: ')
+
+              decodedArray.forEach(v=>{
+                if(!v||v.trim()=='[DONE]')return
+                let json=JSON.parse(v)
+                let text=json.choices[0].delta.content??''
+                if(text)this.tmpTxt+=text
+              })
+
+              //滚动到底部
+              chatBody.scrollTop = chatBody.scrollHeight
+
+              readStream(reader)
+            })
+          }
+
+          readStream(reader)
         }).catch(e=>{
           this.$alert(e.message)
         })
